@@ -6,6 +6,68 @@ embed-resources: true
 
 ## Pass Times for U.S. State Captials
 
+```{r}
+#| label: setup
+#| warning: false
+#| message: false
+library(tidyverse)
+library(tidyjson)
+library(lubridate)
+
+states <- read_table(
+  "https://people.sc.fsu.edu/~jburkardt/datasets/states/state_capitals_ll.txt",
+  col_names = c("state", "lat", "long")
+)
+
+get_datetimes <- function(lat, long, wait = 0.1) {
+  Sys.sleep(wait)
+
+  tryCatch(
+    {
+      passes_data <- httr::GET(
+        glue::glue(
+          "https://api.g7vrd.co.uk/v1/satellite-passes/25544/{lat}/{long}.json"
+        ),
+        httr::timeout(10)
+      )$content |>
+        rawToChar() |>
+        as.tbl_json() |>
+        enter_object("passes") |>
+        gather_array() |>
+        spread_all()
+
+      start_times <- passes_data |>
+        mutate(start_dt = as_datetime(start)) |>
+        filter(!is.na(start_dt)) |>
+        arrange(start_dt) |>
+        pull(start_dt)
+
+      valid_pass <- \(n)
+        if (length(start_times) >= n) start_times[n] else NA_POSIXct_
+
+      tibble(
+        pass1 = valid_pass(1),
+        pass2 = valid_pass(2),
+        pass3 = valid_pass(3),
+      )
+    },
+    error = function(e) {
+      warning(glue::glue(
+        "Error processing API for ({lat},{long}): {e$message}"
+      ))
+      tibble(
+        pass1 = NA_POSIXct_,
+        pass2 = NA_POSIXct_,
+        pass3 = NA_POSIXct_
+      )
+    }
+  )
+}
+
+result <- bind_cols(states, map2_df(states$lat, states$long, get_datetimes)) |>
+  write_csv("space_data.csv")
+```
+
 ## Mapping the Data
 
 ## Drawing the Route of the ISS
