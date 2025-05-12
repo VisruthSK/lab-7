@@ -7,204 +7,65 @@ embed-resources: true
 ## Pass Times for U.S. State Captials
 
 ```{r}
-library(tidyjson)
+#| label: setup
+#| warning: false
+#| message: false
 library(tidyverse)
+library(tidyjson)
+library(lubridate)
 
 states <- read_table(
   "https://people.sc.fsu.edu/~jburkardt/datasets/states/state_capitals_ll.txt",
   col_names = c("state", "lat", "long")
-) |>
-  mutate(
-    across(c(lat, long), ~ round(.x, 3))
-  )
+)
 
-states |>
-  mutate(
-    calls = glue::glue(
-      "https://api.g7vrd.co.uk/v1/satellite-passes/25544/{lat}/{long}.json"
-    )
-  )
-
-get_datetimes <- function(lat, long) {
-  tryCatch(
-    {
-      httr::GET(glue::glue(
-        "https://api.g7vrd.co.uk/v1/satellite-passes/25544/{lat}/{long}.json"
-      ))$content |>
-        rawToChar() |>
-        as.tbl_json() |>
-        enter_object("passes") |>
-        gather_array() |>
-        spread_all() |>
-        mutate(start = lubridate::as_datetime(start)) |>
-        pull(start)
-    },
-    error = function(e) {
-      warning(glue::glue(
-        "Error processing URL for state: {e$message}"
-      ))
-      tibble::tibble(start = lubridate::NA_POSIXct_)
-    }
-  )
-}
-
-map2_df(states$lat, states$long, get_datetimes)
-```
-
-```{r}
-# Gemini code
-get_datetimes_revised <- function(lat, long, wait = 0.1) {
+get_datetimes <- function(lat, long, wait = 0.1) {
   Sys.sleep(wait)
 
   tryCatch(
     {
-      api_data <- httr::GET(glue::glue(
-        "https://api.g7vrd.co.uk/v1/satellite-passes/25544/{lat}/{long}.json"
-      ))$content |>
+      passes_data <- httr::GET(
+        glue::glue(
+          "https://api.g7vrd.co.uk/v1/satellite-passes/25544/{lat}/{long}.json"
+        ),
+        httr::timeout(10)
+      )$content |>
         rawToChar() |>
         as.tbl_json() |>
         enter_object("passes") |>
         gather_array() |>
         spread_all()
 
-      if ("start" %in% names(api_data) && nrow(api_data) > 0) {
-        api_data |>
-          mutate(start = lubridate::as_datetime(start)) |>
-          pull(start)
-      } else {
-        warning(glue::glue(
-          "Error 1 processing for lat {lat}, long {long}: {e$message}"
-        ))
-        tibble(start = lubridate::POSIXct())
-      }
-    },
-    error = \(e) {
-      warning(glue::glue(
-        "Error processing for lat {lat}, long {long}: {e$message}"
-      ))
-      tibble(start = lubridate::NA_POSIXct_)
-    }
-  )
-}
+      start_times <- passes_data |>
+        mutate(start_dt = as_datetime(start)) |>
+        filter(!is.na(start_dt)) |>
+        arrange(start_dt) |>
+        pull(start_dt)
 
-result <- map2_df(states$lat, states$long, get_datetimes_revised)
-```
+      valid_pass <- \(n)
+        if (length(start_times) >= n) start_times[n] else NA_POSIXct_
 
-```{r}
-# 0. Load all necessary libraries
-library(httr) # For GET()
-library(glue) # For glue()
-library(tidyjson) # For as.tbl_json, enter_object, gather_array, spread_all
-library(dplyr) # For mutate, across, arrange, pull, bind_cols
-library(lubridate) # For as_datetime, NA_POSIXct_
-library(purrr) # For pmap_dfr
-library(readr) # For read_table
-library(tibble) # For tibble()
-
-# 1. Define the states data frame
-states <- readr::read_table(
-  "https://people.sc.fsu.edu/~jburkardt/datasets/states/state_capitals_ll.txt",
-  col_names = c("state", "lat", "long")
-) |>
-  dplyr::mutate(
-    dplyr::across(c(lat, long), ~ round(.x, 3))
-  )
-
-# 2. Define the function to get the first three pass start times for a single location
-# This function will always return a 1-row tibble with 3 columns.
-get_first_three_pass_starts <- function(lat, long, state_name_for_error_msg) {
-  # Add a small delay to be polite to the API server
-  Sys.sleep(0.2) # Slightly increased delay
-
-  # Define the structure for the output in case of error or no data
-  default_output <- tibble::tibble(
-    pass1_start = lubridate::NA_POSIXct_,
-    pass2_start = lubridate::NA_POSIXct_,
-    pass3_start = lubridate::NA_POSIXct_
-  )
-
-  tryCatch(
-    {
-      api_url <- glue::glue(
-        "https://api.g7vrd.co.uk/v1/satellite-passes/25544/{lat}/{long}.json"
+      tibble(
+        pass1 = valid_pass(1),
+        pass2 = valid_pass(2),
+        pass3 = valid_pass(3),
       )
-      response <- httr::GET(api_url, timeout(10)) # Added a timeout for safety
-
-      # Check for HTTP errors first
-      httr::stop_for_status(
-        response,
-        task = glue(
-          "fetch satellite data for {state_name_for_error_msg} ({lat},{long})"
-        )
-      )
-
-      json_text <- rawToChar(response$content)
-
-      # Validate JSON before parsing to prevent errors in as.tbl_json
-      if (nchar(json_text) == 0 || !jsonlite::validate(json_text)[1]) {
-        warning(glue(
-          "Empty or invalid JSON received for {state_name_for_error_msg} ({lat},{long})."
-        ))
-        return(default_output)
-      }
-
-      passes_data <- json_text %>%
-        as.tbl_json() %>%
-        enter_object("passes") %>% # Focus on the 'passes' array
-        gather_array() %>% # Convert array elements into rows
-        spread_all() # Spread JSON properties into columns
-
-      # Check if 'start' column exists and there's actual data
-      if (nrow(passes_data) > 0 && "start" %in% names(passes_data)) {
-        start_times <- passes_data %>%
-          dplyr::mutate(start_dt = lubridate::as_datetime(start)) %>%
-          dplyr::filter(!is.na(start_dt)) %>% # Ensure only valid datetimes
-          dplyr::arrange(start_dt) %>% # Order passes chronologically
-          dplyr::pull(start_dt)
-
-        # Create a tibble with the first three pass times, or NA if fewer
-        # This will also be a 1-row tibble
-        tibble::tibble(
-          pass1_start = if (length(start_times) >= 1) start_times[1] else
-            lubridate::NA_POSIXct_,
-          pass2_start = if (length(start_times) >= 2) start_times[2] else
-            lubridate::NA_POSIXct_,
-          pass3_start = if (length(start_times) >= 3) start_times[3] else
-            lubridate::NA_POSIXct_
-        )
-      } else {
-        # No 'start' times found in the data (e.g., 'passes' array was empty or items lacked 'start')
-        # warning(glue("No valid 'start' times found in passes data for {state_name_for_error_msg} ({lat},{long}).")) # Optional warning
-        return(default_output)
-      }
     },
     error = function(e) {
-      # This handles errors from httr::GET (like network issues) or any other unexpected error
-      warning(glue(
-        "Error processing API for {state_name_for_error_msg} ({lat},{long}): {e$message}"
+      warning(glue::glue(
+        "Error processing API for ({lat},{long}): {e$message}"
       ))
-      return(default_output) # Return the default NA structure
+      tibble(
+        pass1 = NA_POSIXct_,
+        pass2 = NA_POSIXct_,
+        pass3 = NA_POSIXct_
+      )
     }
   )
 }
 
-# 3. Prepare arguments for pmap_dfr
-# We need to pass lat, long, and the state name (for error messages) to our function
-args_for_pmap <- list(
-  lat = states$lat,
-  long = states$long,
-  state_name_for_error_msg = states$state # Pass state for better error messages
-)
-
-# 4. Apply the function to each row of the states data frame
-# pmap_dfr will row-bind the resulting 1-row tibbles from each call
-passes_info_df <- purrr::pmap_dfr(args_for_pmap, get_first_three_pass_starts)
-
-# 5. Combine the original states data frame with the new pass start times
-states_with_passes <- dplyr::bind_cols(states, passes_info_df)
-
-# 6. Print the final output (all rows to inspect)
-print(states_with_passes, n = nrow(states_with_passes))
+result <- bind_cols(states, map2_df(states$lat, states$long, get_datetimes)) |>
+  write_csv("space_data.csv")
 ```
 
 ## Mapping the Data
