@@ -6,6 +6,34 @@ embed-resources: true
 
 ## Pass Times for U.S. State Captials
 
+```{r}
+library(tidyjson)
+library(tidyverse)
+library(lubridate)
+
+calls <- read_table(
+  "https://people.sc.fsu.edu/~jburkardt/datasets/states/state_capitals_ll.txt",
+  col_names = c("state", "lat", "long")
+) |>
+  mutate(
+    call = glue::glue(
+      "https://api.g7vrd.co.uk/v1/satellite-passes/25544/{lat}/{long}.json"
+    )
+  ) |>
+  pull(call)
+
+call <- "https://api.g7vrd.co.uk/v1/satellite-passes/25544/32.361538/-86.279118.json"
+httr::GET(call)$content |>
+  rawToChar() |>
+  as.tbl_json() |>
+  enter_object("passes") |>
+  gather_array() |>
+  spread_all() |>
+  select(start) |>
+  mutate(start = as_datetime(start))
+
+```
+
 ## Mapping the Data
 
 ## Drawing the Route of the ISS
