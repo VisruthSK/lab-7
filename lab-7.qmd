@@ -9,29 +9,85 @@ embed-resources: true
 ```{r}
 library(tidyjson)
 library(tidyverse)
-library(lubridate)
 
-calls <- read_table(
+states <- read_table(
   "https://people.sc.fsu.edu/~jburkardt/datasets/states/state_capitals_ll.txt",
   col_names = c("state", "lat", "long")
 ) |>
   mutate(
-    call = glue::glue(
+    across(c(lat, long), ~ round(.x, 3))
+  )
+
+states |>
+  mutate(
+    calls = glue::glue(
       "https://api.g7vrd.co.uk/v1/satellite-passes/25544/{lat}/{long}.json"
     )
-  ) |>
-  pull(call)
+  )
 
-call <- "https://api.g7vrd.co.uk/v1/satellite-passes/25544/32.361538/-86.279118.json"
-httr::GET(call)$content |>
-  rawToChar() |>
-  as.tbl_json() |>
-  enter_object("passes") |>
-  gather_array() |>
-  spread_all() |>
-  select(start) |>
-  mutate(start = as_datetime(start))
+get_datetimes <- function(lat, long) {
+  tryCatch(
+    {
+      httr::GET(glue::glue(
+        "https://api.g7vrd.co.uk/v1/satellite-passes/25544/{lat}/{long}.json"
+      ))$content |>
+        rawToChar() |>
+        as.tbl_json() |>
+        enter_object("passes") |>
+        gather_array() |>
+        spread_all() |>
+        mutate(start = lubridate::as_datetime(start)) |>
+        pull(start)
+    },
+    error = function(e) {
+      warning(glue::glue(
+        "Error processing URL for state: {e$message}"
+      ))
+      tibble::tibble(start = lubridate::NA_POSIXct_)
+    }
+  )
+}
 
+map2_df(states$lat, states$long, get_datetimes)
+```
+
+```{r}
+# Gemini code
+get_datetimes_revised <- function(lat, long, wait = 0.1) {
+  Sys.sleep(wait)
+
+  tryCatch(
+    {
+      api_data <- httr::GET(glue::glue(
+        "https://api.g7vrd.co.uk/v1/satellite-passes/25544/{lat}/{long}.json"
+      ))$content |>
+        rawToChar() |>
+        as.tbl_json() |>
+        enter_object("passes") |>
+        gather_array() |>
+        spread_all()
+
+      if ("start" %in% names(api_data) && nrow(api_data) > 0) {
+        api_data |>
+          mutate(start = lubridate::as_datetime(start)) |>
+          pull(start)
+      } else {
+        warning(glue::glue(
+          "Error 1 processing for lat {lat}, long {long}: {e$message}"
+        ))
+        tibble(start = lubridate::POSIXct())
+      }
+    },
+    error = \(e) {
+      warning(glue::glue(
+        "Error processing for lat {lat}, long {long}: {e$message}"
+      ))
+      tibble(start = lubridate::NA_POSIXct_)
+    }
+  )
+}
+
+result <- map2_df(states$lat, states$long, get_datetimes_revised)
 ```
 
 ## Mapping the Data
