@@ -69,3 +69,35 @@ result <- bind_cols(states, map2_df(states$lat, states$long, get_datetimes)) |>
 ## Mapping the Data
 
 ## Drawing the Route of the ISS
+
+```{r}
+filter_clean <- \(data, col)
+  data |> filter(!is.na({{ col }})) |> arrange({{ col }})
+result <- result |> filter(state != "US")
+
+result |>
+  pivot_longer(cols = starts_with("pass"), values_to = "pass") |>
+  filter(!is.na(pass)) |>
+  arrange(pass) |>
+  leaflet() |>
+  addTiles() |>
+  addPolylines(
+    data = filter_clean(result, pass1),
+    lat = ~lat,
+    lng = ~long
+    # group = ~name
+    # ,color = "red"
+  )
+# |>
+# addPolylines(
+#   data = filter_clean(result, pass2),
+#   lat = ~lat,
+#   lng = ~long
+# ) |>
+# addPolylines(
+#   data = filter_clean(result, pass3),
+#   lat = ~lat,
+#   lng = ~long,
+#   color = "green"
+# )
+```
