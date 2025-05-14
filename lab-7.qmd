@@ -24,7 +24,7 @@ get_datetimes <- function(lat, long, wait = 0.1) {
 
   tryCatch(
     {
-      passes_data <- httr::GET(
+      start_times <- httr::GET(
         glue::glue(
           "https://api.g7vrd.co.uk/v1/satellite-passes/25544/{lat}/{long}.json"
         ),
@@ -34,9 +34,7 @@ get_datetimes <- function(lat, long, wait = 0.1) {
         as.tbl_json() |>
         enter_object("passes") |>
         gather_array() |>
-        spread_all()
-
-      start_times <- passes_data |>
+        spread_all() |>
         mutate(start_dt = as_datetime(start)) |>
         filter(!is.na(start_dt)) |>
         arrange(start_dt) |>
