@@ -17,7 +17,8 @@ library(lubridate)
 states <- read_table(
   "https://people.sc.fsu.edu/~jburkardt/datasets/states/state_capitals_ll.txt",
   col_names = c("state", "lat", "long")
-)
+) |>
+  filter(state != "US")
 
 get_datetimes <- function(lat, long, wait = 0.1) {
   Sys.sleep(wait)
@@ -69,7 +70,6 @@ result <- bind_cols(states, map2_df(states$lat, states$long, get_datetimes)) |>
 ## Mapping the Data
 
 ```{r}
-
 # Load libraries
 library(readr)
 library(dplyr)
@@ -107,7 +107,7 @@ cleaned_space <- cleaned_space %>%
 
 rocket_icon <- makeIcon(
   iconUrl = "rocket.svg",
-  iconWidth = 30,  # Adjust size as needed
+  iconWidth = 30, # Adjust size as needed
   iconHeight = 30
 )
 ```
@@ -117,28 +117,56 @@ rocket_icon <- makeIcon(
 
 ```{r}
 # Plot
-leaflet(cleaned_space) %>%
+m <- leaflet(cleaned_space) %>%
   addTiles() %>%
   addMarkers(
     lng = ~long,
     lat = ~lat,
     icon = rocket_icon,
 
-
     # Hover label shows next pass in local time
-    label = ~paste0("Next pass: ", format(pass1_local, "%Y-%m-%d %H:%M:%S")),
+    label = ~ paste0("Next pass: ", format(pass1_local, "%Y-%m-%d %H:%M:%S")),
 
     # Clickable popup shows all 3 local pass times
-    popup = ~paste0(
-      "<b>", state, "</b><br/>",
-      "Pass 1: ", format(pass1_local, "%Y-%m-%d %H:%M:%S"), "<br/>",
-      "Pass 2: ", format(pass2_local, "%Y-%m-%d %H:%M:%S"), "<br/>",
-      "Pass 3: ", format(pass3_local, "%Y-%m-%d %H:%M:%S")
+    popup = ~ paste0(
+      "<b>",
+      state,
+      "</b><br/>",
+      "Pass 1: ",
+      format(pass1_local, "%Y-%m-%d %H:%M:%S"),
+      "<br/>",
+      "Pass 2: ",
+      format(pass2_local, "%Y-%m-%d %H:%M:%S"),
+      "<br/>",
+      "Pass 3: ",
+      format(pass3_local, "%Y-%m-%d %H:%M:%S")
     )
   )
+m
 ```
 
 
-
-
 ## Drawing the Route of the ISS
+
+```{r}
+library(leaflet.extras2)
+
+ordered_result <- result |>
+  filter(!is.na(pass1)) |>
+  arrange(pass1)
+
+m |>
+  addArrowhead(
+    data = ordered_result,
+    lat = ~lat,
+    lng = ~long,
+    color = "red",
+    options = arrowheadOptions(
+      frequency = "200px",
+      size = "10px",
+      color = "purple",
+      opacity = 1,
+      fill = TRUE
+    )
+  )
+```
