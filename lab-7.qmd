@@ -17,7 +17,8 @@ library(lubridate)
 states <- read_table(
   "https://people.sc.fsu.edu/~jburkardt/datasets/states/state_capitals_ll.txt",
   col_names = c("state", "lat", "long")
-)
+) |>
+  filter(state != "US")
 
 get_datetimes <- function(lat, long, wait = 0.1) {
   Sys.sleep(wait)
@@ -69,7 +70,6 @@ result <- bind_cols(states, map2_df(states$lat, states$long, get_datetimes)) |>
 ## Mapping the Data
 
 ```{r}
-
 # Load libraries
 library(readr)
 library(dplyr)
@@ -117,7 +117,7 @@ rocket_icon <- makeIcon(
 
 ```{r}
 # Plot
-leaflet(cleaned_space) %>%
+m <- leaflet(cleaned_space) %>%
   addTiles() %>%
   addMarkers(
     lng = ~long,
@@ -142,41 +142,31 @@ leaflet(cleaned_space) %>%
       format(pass3_local, "%Y-%m-%d %H:%M:%S")
     )
   )
+m
 ```
-
-
 
 
 ## Drawing the Route of the ISS
 
 ```{r}
-filter_clean <- \(data, col)
-  data |> filter(!is.na({{ col }})) |> arrange({{ col }})
-result <- result |> filter(state != "US")
+library(leaflet.extras2)
 
-result |>
-  pivot_longer(cols = starts_with("pass"), values_to = "pass") |>
-  filter(!is.na(pass)) |>
-  arrange(pass) |>
-  leaflet() |>
-  addTiles() |>
-  addPolylines(
-    data = filter_clean(result, pass1),
+ordered_result <- result |>
+  filter(!is.na(pass1)) |>
+  arrange(pass1)
+
+m |>
+  addArrowhead(
+    data = ordered_result,
     lat = ~lat,
-    lng = ~long
-    # group = ~name
-    # ,color = "red"
+    lng = ~long,
+    color = "red",
+    options = arrowheadOptions(
+      frequency = "200px",
+      size = "10px",
+      color = "purple",
+      opacity = 1,
+      fill = TRUE
+    )
   )
-# |>
-# addPolylines(
-#   data = filter_clean(result, pass2),
-#   lat = ~lat,
-#   lng = ~long
-# ) |>
-# addPolylines(
-#   data = filter_clean(result, pass3),
-#   lat = ~lat,
-#   lng = ~long,
-#   color = "green"
-# )
 ```
